@@ -1,18 +1,18 @@
-# FALCON Project Checklist
+# EAGLE Project Checklist
 
-## Act I: The RTOS Compute Core
-*Establishing the foundational software environment on the microcontroller.*
-- [ ] **Setup Toolchain:** Drop the Arduino IDE and configure a bare-metal ARM GCC toolchain (or PlatformIO/STM32Cube) for your MCU.
-- [ ] **Port FreeRTOS:** Compile and run FreeRTOS on the MCU to enable preemptive multitasking.
-- [ ] **F' Compilation:** Cross-compile NASA's F' framework so it runs natively on your FreeRTOS target.
-- [ ] **F' Hello World:** Deploy a basic F' component that transmits a serial heartbeat down to your laptop to prove the stack works.
-
-## Act II: The FPGA Reflex System & TMR
+## Act I: The FPGA Reflex System & TMR
 *Building the deterministic hardware abstraction layer in custom silicon.*
 - [ ] **VHDL SPI Master:** Write an SPI master controller in VHDL to continuously poll the Barometer and the 3x IMUs.
 - [ ] **TMR Voting Logic:** Implement SpaceX-style Triple Modular Redundancy in VHDL to compare the 3 IMUs simultaneously and instantly vote out any failing sensor.
 - [ ] **VHDL PWM Generator:** Develop a PWM module in VHDL to accurately drive the airbrake servos and the system buzzer.
 - [ ] **SpaceWire Node:** Implement the SpaceWire protocol (Data-Strobe) on the FPGA to pack sensor data and await read-requests.
+
+## Act II: The RTOS Compute Core
+*Establishing the foundational software environment on the microcontroller.*
+- [ ] **Setup Toolchain:** Drop the Arduino IDE and configure a bare-metal ARM GCC toolchain (or PlatformIO/STM32Cube) for your MCU.
+- [ ] **Port FreeRTOS:** Compile and run FreeRTOS on the MCU to enable preemptive multitasking.
+- [ ] **F' Compilation:** Cross-compile NASA's F' framework so it runs natively on your FreeRTOS target.
+- [ ] **F' Hello World:** Deploy a basic F' component that transmits a serial heartbeat down to your laptop to prove the stack works.
 
 ## Act III: The Aerospace Bridge
 *Integrating the hardware and software across physical buses.*

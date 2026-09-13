@@ -1,6 +1,6 @@
 <div align="center">
 
-# FALCON Rocket Flight Controller
+# EAGLE Rocket Flight Controller
 
 ![Focus](https://img.shields.io/badge/Focus-Aerospace-purple)
 ![Language](https://img.shields.io/badge/C%2B%2B-00599C?style=flat-square&logo=c%2B%2B&logoColor=white)
@@ -13,9 +13,9 @@
 ---
 
 ## About
-FALCON is a hybrid hardware-software flight controller designed for amateur rocketry, built from first principles to mimic real-world aerospace architectures (like those used by SpaceX and NASA). 
+**EAGLE** (**E**mbedded **A**erospace **G**uidance & **L**ogic **E**ngine) is a hybrid hardware-software flight controller designed for amateur rocketry, built from first principles to mimic real-world aerospace architectures (like those used by SpaceX and NASA). 
 
-Instead of relying on Linux abstractions or 8-bit Arduino limits, FALCON separates the compute workload from the physical reflex system. It uses an RTOS-based microcontroller (The Brain) to handle NASA's F' framework, state management, and flight math, while a dedicated FPGA (The Reflex System) acts as a deterministic hardware abstraction layer to talk to physical sensors and servos at microsecond accuracy.
+Instead of relying on Linux abstractions or 8-bit Arduino limits, EAGLE separates the compute workload from the physical reflex system. It uses an RTOS-based microcontroller (The Brain) to handle NASA's F' framework, state management, and flight math, while a dedicated FPGA (The Reflex System) acts as a deterministic hardware abstraction layer to talk to physical sensors and servos at microsecond accuracy.
 
 ## Architecture Overview
 
@@ -45,7 +45,7 @@ Instead of relying on Linux abstractions or 8-bit Arduino limits, FALCON separat
 - **Live Telemetry:** Sub-GHz radio broadcasting down to a Flipper Zero Ground Station.
 
 ## Roadmap & Status
-See [`FALCON_Checklist.md`](FALCON_Checklist.md) for the active 6-Act execution roadmap.
+See [`EAGLE_Checklist.md`](EAGLE_Checklist.md) for the active 6-Act execution roadmap.
 
 ---
 
