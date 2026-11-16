@@ -1,5 +1,19 @@
 # EAGLE Project Checklist
 
+> **Phased Architecture Strategy**: Phase 1 is **Act 0 (The Empirical Research Paper)**—building and benchmarking the FPGA reflex core against RTOS software polling to generate peer-reviewed data. Phase 2 (Acts I–VI) expands the proven core into full airframe flight computer integration.
+> Detailed academic plan: see [`RESEARCH_PAPER_PLAN.md`](RESEARCH_PAPER_PLAN.md).
+
+## Act 0: The Research Paper (Phase 1: The Empirical Foundation)
+*Benchmarking FPGA TMR Reflex Ingestion vs. RTOS Software Polling for IEEE DASC / ESA PAC.*
+- [ ] **Paper Scope Freeze:** Isolate vertical slice testbench (3x ICM-42688-P SPI IMUs, Cyclone II FPGA, MCU to be chosen; STM32 likely).
+- [ ] **VHDL SPI Master:** Write synthesizable SPI Mode 0 master in pure `ieee.numeric_std`.
+- [ ] **VHDL TMR Median Voter:** Implement 1-cycle median selection and fault detection vector logic.
+- [ ] **GHDL Simulation & Waveforms:** Run self-checking testbench (`tb_tmr_voter.vhd`); capture GTKWave VCD waveforms.
+- [ ] **Benchtop Timing Capture:** Measure latency variance histogram (Jitter) and CPU load comparing FPGA offload vs FreeRTOS software polling.
+- [ ] **Paper Draft & Submission:** Author IEEE-format conference paper with GJU lab faculty; submit to target conference.
+
+---
+
 ## Act I: The FPGA Reflex System & TMR
 *Building the deterministic hardware abstraction layer in custom silicon.*
 - [ ] **VHDL SPI Master:** Write an SPI master controller in VHDL to continuously poll the Barometer and the 3x IMUs.
