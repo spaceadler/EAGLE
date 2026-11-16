@@ -1,56 +1,75 @@
-<div align="center">
-
 # EAGLE Rocket Flight Controller
 
+> **E**mbedded **A**erospace **G**uidance & **L**ogic **E**ngine: an architectural design study for a hybrid MCU/FPGA amateur-rocket flight controller.
+
 ![Focus](https://img.shields.io/badge/Focus-Aerospace-purple)
-![Language](https://img.shields.io/badge/C%2B%2B-00599C?style=flat-square&logo=c%2B%2B&logoColor=white)
-![Language](https://img.shields.io/badge/VHDL-A50034?style=flat-square)
-![Framework](https://img.shields.io/badge/F'_(F_Prime)-blue?style=flat-square)
-![OS](https://img.shields.io/badge/FreeRTOS-lightgrey?style=flat-square)
+![Stack](https://img.shields.io/badge/Stack-VHDL_%7C_C%2B%2B_%7C_F'-blue)
+![Status](https://img.shields.io/badge/Status-Design_Study-yellow)
 
-</div>
+## Overview
 
----
+EAGLE splits a flight computer the way real avionics do. An RTOS microcontroller (**the brain**) runs NASA F´, state management and flight math. A Cyclone II FPGA (**the reflex system**) talks to the sensors and servos with deterministic, cycle-exact timing. This is a design and research backlog: no flight software or VHDL exists yet.
 
-## About
-**EAGLE** (**E**mbedded **A**erospace **G**uidance & **L**ogic **E**ngine) is a hybrid hardware-software flight controller designed for amateur rocketry, built from first principles to mimic real-world aerospace architectures (like those used by SpaceX and NASA). 
+## Architecture
 
-Instead of relying on Linux abstractions or 8-bit Arduino limits, EAGLE separates the compute workload from the physical reflex system. It uses an RTOS-based microcontroller (The Brain) to handle NASA's F' framework, state management, and flight math, while a dedicated FPGA (The Reflex System) acts as a deterministic hardware abstraction layer to talk to physical sensors and servos at microsecond accuracy.
-
-## Architecture Overview
-
-```text
-  [ THE COMPUTE CORE ]                      [ THE REFLEX SYSTEM ]
-  ┌──────────────────┐    SpaceWire Link    ┌──────────────────┐
-  │ Microcontroller  │ ◄──────────────────► │ FPGA (Cyclone II)│
-  │ (FreeRTOS)       │   (Data-Strobe)      │                  │
-  │                  │                      │ ┌──────────────┐ │
-  │ - NASA F'        │                      │ │ TMR Voting   │ │
-  │ - MISRA C++:2008 │                      │ └──────┬───────┘ │
-  │ - Kalman Filter  │                      │        │         │
-  │ - SD Card Log    │                      │  ┌─────┼─────┐   │
-  └────────┬─────────┘                      │  ▼     ▼     ▼   │
-           │                                │ IMU1  IMU2  IMU3 │
-       [ SD Card ]                          │ (Baro)           │
-                                            └─────────┬────────┘
-                                                      │ PWM
-                                                [ Airbrakes ]
+```mermaid
+flowchart LR
+    subgraph brain["Compute core: MCU + FreeRTOS"]
+        fp["NASA F´"] --- kf["Kalman filter"] --- sm["flight state machine"]
+        sd[("SD card log")]
+        sm --> sd
+    end
+    subgraph reflex["Reflex system: FPGA (Cyclone II)"]
+        tmr{"TMR voter"}
+        pwm["PWM"]
+    end
+    imu1[IMU 1] & imu2[IMU 2] & imu3[IMU 3] --> tmr
+    brain <-->|"SpaceWire (data-strobe)"| reflex
+    pwm --> brakes["airbrakes"]
+    brain -.->|"Sub-GHz telemetry"| gs["Flipper Zero<br/>ground station"]
 ```
 
-## Features
-- **NASA F' Framework on Bare Metal:** Cross-compiled to run natively on FreeRTOS.
-- **SpaceX-Style TMR (Triple Modular Redundancy):** 3x IMUs polled in parallel by the FPGA, with VHDL voting logic to instantly discard failed sensors.
-- **Hardware-Software Co-Design:** Uses the ESA SpaceWire protocol to bridge the microcontroller and the FPGA.
-- **Aerospace Compliance:** All C++ driver and component code strictly adheres to **MISRA C++:2008** and **NASA's Power of 10** rules (no dynamic memory).
-- **Live Telemetry:** Sub-GHz radio broadcasting down to a Flipper Zero Ground Station.
+## Design Targets
 
-## Roadmap & Status
-See [`EAGLE_Checklist.md`](EAGLE_Checklist.md) for the active 6-Act execution roadmap.
+| Target | Why |
+|---|---|
+| **TMR sensor voting** in VHDL | 3 IMUs polled in parallel; a failed sensor is outvoted in hardware |
+| **SpaceWire** MCU ↔ FPGA link | The ESA standard for bridging compute and I/O |
+| **MISRA C++:2008 + Power of 10** | No dynamic memory; the rules flight code is written under |
+| **F´ on FreeRTOS** | NASA's flight framework, cross-compiled to bare metal |
+
+## Repository
+
+Phase 1 only: the paper's bench. Folders and READMEs, no code yet; each README says what the plan puts there.
+
+```mermaid
+flowchart LR
+    rtl["rtl/<br/>reflex core (VHDL)"] --> tb["tb/<br/>GHDL testbenches"]
+    rtl --> q["quartus/<br/>EP2C5T144C8 project"]
+    fw["fw/<br/>baseline · co-design"] --> bench["bench/<br/>HIL setup + captures"]
+    q --> bench
+    bench --> an["analysis/<br/>the paper's figures"] --> paper["paper/<br/>IEEE draft"]
+```
+
+| Folder | What goes there |
+|---|---|
+| [`rtl/`](rtl/) | The VHDL pipeline: SPI masters, TMR voter, fault detector, telemetry TX, top level |
+| [`tb/`](tb/) | Self-checking GHDL testbenches and their waveforms |
+| [`quartus/`](quartus/) | The Quartus 13.0sp1 project and timing constraints |
+| [`fw/`](fw/) | Baseline and co-design FreeRTOS firmware |
+| [`bench/`](bench/) | Wiring and capture procedure |
+| [`analysis/`](analysis/) | Logs → jitter, WCET, CPU-load and fault-latency plots |
+| [`paper/`](paper/) | The Phase 1 paper |
+
+## Roadmap
+
+```mermaid
+flowchart LR
+    p1["Phase 1: research paper<br/>FPGA TMR vs RTOS polling<br/>jitter, WCET, CPU load"] --> p2["Phase 2: flight computer<br/>Acts I–VI"]
+```
+
+1. **Phase 1 (Act 0, in progress):** benchmark the FPGA reflex core against RTOS software polling. Target venue IEEE DASC / ESA PAC. Plan: [`RESEARCH_PAPER_PLAN.md`](RESEARCH_PAPER_PLAN.md).
+2. **Phase 2 (Acts I–VI):** grow the proven core into full sounding-rocket avionics: F´, Kalman estimation, flight state machine, airbrake PID. Checklist: [`EAGLE_Checklist.md`](EAGLE_Checklist.md).
 
 ---
-
-<div align="center">
-
 *powered by logic, coffee, and many sleepless nights*
-
-</div>
