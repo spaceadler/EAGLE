@@ -43,7 +43,7 @@ flowchart LR
 Phase 1 only: the paper's bench. Folders and READMEs, no code yet; each README says what the plan puts there.
 
 ```mermaid
-flowchart LR
+flowchart TB
     rtl["rtl/<br/>reflex core (VHDL)"] --> tb["tb/<br/>GHDL testbenches"]
     rtl --> q["quartus/<br/>EP2C5T144C8 project"]
     fw["fw/<br/>baseline · co-design"] --> bench["bench/<br/>HIL setup + captures"]
