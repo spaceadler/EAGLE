@@ -13,19 +13,18 @@ EAGLE splits a flight computer the way real avionics do. A microcontroller runni
 ## Architecture
 
 ```mermaid
-flowchart LR
-    subgraph brain["Compute core: MCU + FreeRTOS"]
-        fp["NASA F´"] --- kf["Kalman filter"] --- sm["flight state machine"]
-        sd[("SD card log")]
-        sm --> sd
-    end
+flowchart TB
+    imu["3 × IMU"] -->|"3 × SPI"| tmr
+    baro["barometer"] --> reflex
     subgraph reflex["Reflex system: FPGA (Cyclone II)"]
         tmr{"mid-value voter<br/>+ fault vector"}
         pwm["PWM"]
     end
-    imu1[IMU 1] & imu2[IMU 2] & imu3[IMU 3] -->|"3 × SPI"| tmr
-    baro[barometer] --> reflex
-    brain <-->|"SPI + DMA"| reflex
+    subgraph brain["Compute core: MCU + FreeRTOS"]
+        fp["NASA F´"] --- kf["Kalman filter"] --- sm["flight state machine"]
+        sm --> sd[("SD card log")]
+    end
+    reflex <-->|"SPI + DMA"| brain
     pwm --> brakes["airbrakes"]
     brain -.->|"Sub-GHz telemetry"| gs["Flipper Zero<br/>ground station"]
 ```
@@ -67,7 +66,7 @@ flowchart TB
 ## Roadmap
 
 ```mermaid
-flowchart LR
+flowchart TB
     a1["I: FPGA voter core"] --> a3["III: bench integration"]
     a2["II: FreeRTOS + F´"] --> a3
     a3 --> a4["IV: state machine<br/>+ telemetry"] --> a5["V: GNC"] --> a6["VI: redundant compute<br/>+ stretch goals"]
