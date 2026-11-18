@@ -1,53 +1,52 @@
 # EAGLE Project Checklist
 
-> **Phased Architecture Strategy**: Phase 1 is **Act 0 (The Empirical Research Paper)**—building and benchmarking the FPGA reflex core against RTOS software polling to generate peer-reviewed data. Phase 2 (Acts I–VI) expands the proven core into full airframe flight computer integration.
-> Detailed academic plan: see [`RESEARCH_PAPER_PLAN.md`](RESEARCH_PAPER_PLAN.md).
+> The flight computer is the project. The benchmark in Act III is an optional side experiment; if it holds up, it becomes the paper ([`RESEARCH_PAPER_PLAN.md`](RESEARCH_PAPER_PLAN.md)).
 
-## Act 0: The Research Paper (Phase 1: The Empirical Foundation)
-*Benchmarking FPGA TMR Reflex Ingestion vs. RTOS Software Polling for IEEE DASC / ESA PAC.*
-- [ ] **Paper Scope Freeze:** Isolate vertical slice testbench (3x ICM-42688-P SPI IMUs, Cyclone II FPGA, MCU to be chosen; STM32 likely).
-- [ ] **VHDL SPI Master:** Write synthesizable SPI Mode 0 master in pure `ieee.numeric_std`.
-- [ ] **VHDL TMR Median Voter:** Implement 1-cycle median selection and fault detection vector logic.
-- [ ] **GHDL Simulation & Waveforms:** Run self-checking testbench (`tb_tmr_voter.vhd`); capture GTKWave VCD waveforms.
-- [ ] **Benchtop Timing Capture:** Measure latency variance histogram (Jitter) and CPU load comparing FPGA offload vs FreeRTOS software polling.
-- [ ] **Paper Draft & Submission:** Author IEEE-format conference paper with GJU lab faculty; submit to target conference.
+**Redundancy scope:** Acts I–V make the **sensors** triple-redundant: three IMUs, one MCU, one FPGA. The MCU and the FPGA are still single points of failure. Redundant compute is Act VI.
 
 ---
 
 ## Act I: The FPGA Reflex System & TMR
-*Building the deterministic hardware abstraction layer in custom silicon.*
-- [ ] **VHDL SPI Master:** Write an SPI master controller in VHDL to continuously poll the Barometer and the 3x IMUs.
-- [ ] **TMR Voting Logic:** Implement SpaceX-style Triple Modular Redundancy in VHDL to compare the 3 IMUs simultaneously and instantly vote out any failing sensor.
-- [ ] **VHDL PWM Generator:** Develop a PWM module in VHDL to accurately drive the airbrake servos and the system buzzer.
-- [ ] **SpaceWire Node:** Implement the SpaceWire protocol (Data-Strobe) on the FPGA to pack sensor data and await read-requests.
+*The Cyclone II reads the sensors on a fixed schedule and votes on them.*
+- [ ] **SPI masters:** Synthesizable SPI Mode 0 master in pure `ieee.numeric_std` with a configurable clock divider. One instance per IMU, so all three are sampled on the same clock edge, plus one for the barometer.
+- [ ] **Mid-value voter:** Select the median of the three IMU readings, per axis. Exact majority voting does not work for sensors: three real IMUs never agree bit for bit.
+- [ ] **Fault detector:** 3-bit fault vector that flags a channel which drifts past a threshold from the median or stops responding.
+- [ ] **MCU link (SPI slave):** The MCU reads the voted data and the fault vector over SPI with DMA, at a fixed rate.
+- [ ] **PWM generator:** Drive the airbrake servos and the buzzer.
+- [ ] **Verification:** Self-checking GHDL testbench for each module, including a corrupted sensor and a dead one. GTKWave captures of the clock cycle where a faulty channel is isolated.
+- [ ] **Timing closure:** `eagle.sdc` for the 50 MHz clock; positive setup/hold slack in Quartus TimeQuest.
 
 ## Act II: The RTOS Compute Core
-*Establishing the foundational software environment on the microcontroller.*
-- [ ] **Setup Toolchain:** Drop the Arduino IDE and configure a bare-metal ARM GCC toolchain (or PlatformIO/STM32Cube) for your MCU.
-- [ ] **Port FreeRTOS:** Compile and run FreeRTOS on the MCU to enable preemptive multitasking.
-- [ ] **F' Compilation:** Cross-compile NASA's F' framework so it runs natively on your FreeRTOS target.
-- [ ] **F' Hello World:** Deploy a basic F' component that transmits a serial heartbeat down to your laptop to prove the stack works.
+*FreeRTOS and F´ on the microcontroller. Start this alongside Act I: getting F´ onto the target is the riskiest step in the project, and Act III needs it.*
+- [ ] **Choose the MCU** (STM32 likely) and set up an ARM GCC toolchain (STM32Cube or plain CMake).
+- [ ] **FreeRTOS:** Running on the MCU with preemptive multitasking.
+- [ ] **F´ build:** Cross-compile NASA's F´ framework for the FreeRTOS target.
+- [ ] **F´ heartbeat:** A basic F´ component that sends a serial heartbeat to the laptop, to prove the stack works.
 
 ## Act III: The Aerospace Bridge
-*Integrating the hardware and software across physical buses.*
-- [ ] **Physical Wiring:** Connect the SpaceWire Data and Strobe lines between the MCU and the FPGA.
-- [ ] **F' SpaceWire Driver:** Write a C++ F' component to request and receive data from the FPGA over SpaceWire at a fixed rate (e.g., 100Hz).
-- [ ] **Compliance Audit:** Run a static analyzer on the C++ driver to verify zero dynamic memory allocation, strict MISRA C++ adherence, and NASA Power of 10 compliance.
+*FPGA and MCU working together on the bench.*
+- [ ] **Bench wiring:** FPGA to the three IMUs and the barometer, SPI link to the MCU. Everything is 3.3 V.
+- [ ] **F´ link component:** A C++ F´ component that reads the FPGA's frames over SPI with DMA at a fixed rate.
+- [ ] **Fault injection:** Disconnect or corrupt one IMU; confirm the fault vector flags it and the voted output stays valid.
+- [ ] **Compliance audit:** Check my own C++ (not the F´ framework, which is a documented deviation) against MISRA C++:2023 and the Power of 10 rules, including no dynamic memory after initialization. Tooling: to be decided.
+- [ ] **Benchmark (optional):** Compare the FPGA core against an MCU-only baseline. Method and fairness rules: [`RESEARCH_PAPER_PLAN.md`](RESEARCH_PAPER_PLAN.md).
 
 ## Act IV: State Machine & Telemetry
-*Building the flight logic and data logging systems.*
-- [ ] **F' SD Card Driver:** Integrate or write an SPI driver in F' for continuous, high-speed flight data logging to the MicroSD card.
-- [ ] **Rocket State Machine:** Implement the flight states (IDLE, ARMED, ASCENT, APOGEE, DESCENT, TOUCHDOWN) as a dedicated F' component.
-- [ ] **Sub-GHz Radio Driver:** Wire a CC1101 radio to the MCU and write an F' driver to broadcast live CCSDS telemetry frames.
-- [ ] **Flipper Zero Ground Station:** Configure your Flipper Zero's Sub-GHz radio to receive and decode the live telemetry payloads during flight.
+*Flight logic and data logging.*
+- [ ] **SD card logging:** Integrate or write an SPI driver in F´ for continuous flight data logging to the microSD card.
+- [ ] **Rocket state machine:** The flight states (IDLE, ARMED, ASCENT, APOGEE, DESCENT, TOUCHDOWN) as an F´ component.
+- [ ] **Sub-GHz radio:** Wire a CC1101 radio to the MCU and write an F´ driver that sends CCSDS telemetry frames.
+- [ ] **Flipper Zero ground station:** Receive and decode the telemetry frames on the Flipper's Sub-GHz radio.
 
 ## Act V: Guidance, Navigation, & Control
-*Fusing sensor data and actuating control surfaces.*
-- [ ] **Kalman Filter Component:** Write an F' math component to fuse noisy Barometer data and IMU drift into a highly accurate altitude/velocity estimate.
-- [ ] **Airbrake PID Controller:** Implement a PID loop that calculates the error between your Target Altitude and Current Altitude to command the FPGA servo deflections.
-- [ ] **Matlab/Python Simulation:** Feed simulated flight profiles (Software-in-the-Loop) into your F' components on your laptop to verify the math before testing physical hardware.
+*Estimating the rocket's state and acting on it.*
+- [ ] **Kalman filter:** An F´ component that fuses barometer and IMU data into an altitude and vertical-velocity estimate.
+- [ ] **Airbrake PID:** A PID loop on the error between target and estimated apogee, commanding the FPGA's servo PWM.
+- [ ] **Software-in-the-loop:** Feed simulated flight profiles (Python or MATLAB) into the F´ components on the laptop before any hardware test.
 
 ## Act VI: Advanced Aerospace Protocols
-*Upgrading the internal networking to industry standards.*
-- [ ] **CAN Bus Node:** Write a VHDL CAN controller for prioritized, reliable telemetry broadcasting across the system.
-- [ ] **SpaceWire Router:** Expand the FPGA's SpaceWire node into a full router, allowing you to connect external payloads like cameras or secondary sensors exactly like a satellite bus.
+*Stretch goals, after the rest flies.*
+- [ ] **Redundant compute:** Three MCUs run the same F´ deployment; the FPGA compares their outputs 2-out-of-3 (exact match). Needs the replicas kept in step and their outputs deterministic. This removes the MCU as a single point of failure.
+- [ ] **Voter hardening:** The Cyclone II's SRAM configuration can itself be upset. Study mitigations such as TMR inside the voter and periodic reconfiguration.
+- [ ] **CAN node:** A VHDL CAN controller for prioritized telemetry across the system.
+- [ ] **SpaceWire node:** Only worth doing with a partner on the other end that speaks it; STM32s have no SpaceWire peripheral.
