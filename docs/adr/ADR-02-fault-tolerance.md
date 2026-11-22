@@ -209,7 +209,7 @@ What the EP2C5 cannot do that the ProASIC3 does, and what ADR-03 can do about it
 
 | Gap | EP2C5 | Options for ADR-03 |
 |---|---|---|
-| Configuration upsets | detected by CRC_ERROR; repaired only by full reconfiguration, 47.1 ms typical, 61.2 ms max [10] | accept as a residual risk for rig flights; route the ESC lines through a small hardware multiplexer that hands them to the active MCU when the FPGA drops out (the MCU then needs its own DShot generation); move the supervisor to a flash FPGA (ProASIC3, IGLOO2, or PolarFire, whose configuration cells are non-volatile [14]) |
+| Configuration upsets | detected by CRC_ERROR; repaired only by full reconfiguration, 47.1 ms typical, 61.2 ms max [10] | accept as a residual risk for rig flights; route the ESC lines through a small hardware multiplexer that hands them to the active MCU when the FPGA drops out (the MCU then needs its own DShot generation); move the supervisor to an FPGA with non-volatile configuration cells (ProASIC3 [4], or PolarFire [14]) |
 | Cold start | power-on reset of at least 100 ms, then up to 61.2 ms of configuration [10] | hold the MCUs in reset until the FPGA is configured (external pull-downs, ADR-04); arm only after both are up |
 | I/O during configuration | tri-stated with 10 to 50 kΩ weak pull-ups [10] | define every safety-relevant pin's level with an external resistor (ADR-04) |
 | User flip-flops | ordinary flip-flops | TMR on the supervisor's state registers, as Ingenuity did; this protects the state, not the configuration |

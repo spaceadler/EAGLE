@@ -51,9 +51,11 @@ Device Handbook [1] unless marked.
 | Resource | EP2C5T144C8 | 75% ceiling | 70% ceiling |
 |---|---|---|---|
 | Logic elements (one 4-input LUT and one register each) | 4,608 | 3,456 | 3,226 |
+| Registers in the logic array | 4,608, one per LE | 3,456 | 3,226 |
 | M4K RAM blocks (4 Kbit plus 512 parity bits each) | 26 (119,808 bits with parity, 106,496 without) | 19 | 18 |
 | Embedded multipliers | 13 × (18 × 18), or 26 × (9 × 9) | 9 | 9 |
 | PLLs | 2 | 1 | 1 |
+| Global clock networks | 8 on the EP2C5 (16 on larger Cyclone II parts) | 6 | 5 |
 | User I/O, 144-pin TQFP | 89 | 66 | 62 |
 | Speed grade | C8, the slowest in the family | | |
 | Core supply | 1.2 V (1.15 to 1.25 V) | | |
@@ -90,7 +92,7 @@ comparators take about one LE per bit in arithmetic mode [1, ch. 2]. Fitter repo
 | Supervisor FSM | modes, channel select, retry counters, reset and power control | 150 to 300 | 0 |
 | TMR of supervisor state | triplicated registers and majority | 50 to 100 | 0 |
 | Event log and 32-bit timestamp | 256 × 32-bit log, write pointer, counter | 50 to 80 | 2 |
-| Debug UART transmitter (`UART_TX` repo) | as written | 40 to 60 | 0 |
+| Debug UART transmitter (`UART_TX` repo) | the existing module, never synthesized for a count | 40 to 60 | 0 |
 
 Two envelopes, to show the budget is not the binding constraint (both with 3 IMUs, a barometer,
 4 DShot channels, 2 servo channels and serial MVS):
@@ -119,9 +121,9 @@ Alternatives, for the owner to weigh if the configuration row decides it:
 
 | Part family | Configuration | Relevance |
 |---|---|---|
-| Microchip ProASIC3, IGLOO2, PolarFire | flash or SONOS configuration cells, immune to neutron-induced configuration upsets, live at power-up [3][4] | the Ingenuity choice (ProASIC3L) |
+| Microchip ProASIC3, PolarFire | flash (ProASIC3) or SONOS (PolarFire) configuration cells, immune to neutron-induced configuration upsets [3][4]; no external configuration device; ProASIC3 is live at power-up [3] | the Ingenuity choice (ProASIC3L) |
 | Intel MAX 10 | bitstream in on-chip flash, loaded into SRAM configuration at power-up ("instant-on"); CRC checking in user mode [5] | faster start, same upset exposure at run time |
-| Lattice iCE40, ECP5 | SRAM, loaded from external flash | open toolchain (Yosys and nextpnr) [6]; same upset exposure |
+| Lattice iCE40, ECP5 | SRAM, usually loaded from external SPI flash | open toolchain (Yosys and nextpnr) [6]; same upset exposure |
 
 ## Microcontroller shortlist
 
@@ -158,7 +160,7 @@ commanded path: it sends set-points and receives telemetry, like Ingenuity's Sna
 
 1. Altera, Cyclone II Device Handbook, Volume 1, February 2007: Tables 1–1 and 1–2 (resources,
    package I/O), ch. 2 (LE, arithmetic mode), ch. 3 (SEU detection), ch. 4 (POR), Table 5–3 (R_CONF),
-   ch. 13 (configuration sizes and times).
+   ch. 7 (eight global clocks on the EP2C5), ch. 13 (configuration sizes and times).
    <https://www.cs.columbia.edu/~sedwards/classes/2008/4840/cyc2_cii5v1.pdf>
 2. Intel, "Quartus Software Latest Version for Device Support" (Cyclone II: 13.0sp1), and knowledge
    base article 000073717 (families removed from 13.1).
