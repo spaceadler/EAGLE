@@ -1,5 +1,7 @@
 # EAGLE Research Paper Plan & Benchmark Checklist
 
+*Archived 2026-11-22: an implementation-phase experiment, paused while Phase A runs; its research question, fairness rules and metrics carry over as evidence item E3-4 of [ADR-03](../docs/adr/ADR-03-partitioning.md).*
+
 > **An optional side experiment of EAGLE (Act III):** benchmark the FPGA reflex core against the same job done in MCU software. The flight computer does not depend on it.
 
 ---
@@ -57,7 +59,7 @@ The experiment does not require building an entire rocket airframe. It isolates 
 
 ## 3. Benchmark Checklist
 
-Steps 1–2 are the same work as Act I of [`EAGLE_Checklist.md`](EAGLE_Checklist.md); they are repeated here so the paper's method is complete.
+Steps 1–2 are the same work as Act I of [`EAGLE_Checklist-v1.md`](EAGLE_Checklist-v1.md); they are repeated here so the paper's method is complete.
 
 ### Step 1: FPGA RTL Implementation (VHDL)
 - [ ] **`spi_master.vhd`**: Write a synthesizable SPI Mode 0 master in pure `ieee.numeric_std` with configurable clock divider.
@@ -72,7 +74,7 @@ Steps 1–2 are the same work as Act I of [`EAGLE_Checklist.md`](EAGLE_Checklist
 - [ ] **Timing Closure**: Write `eagle.sdc` for 50 MHz clock constraints; verify positive setup/hold slack in Quartus TimeQuest.
 
 ### Step 3: Hardware Benchtop & Data Collection
-- [ ] **Wire Hardware Bench**: Wire Cyclone II board to 3x SPI IMUs (ICM-42688-P; the MPU-6050 first named here is I2C-only) and connect the SPI link to the MCU. Wiring table: [`bench/README.md`](bench/README.md).
+- [ ] **Wire Hardware Bench**: Wire Cyclone II board to 3x SPI IMUs (ICM-42688-P; the MPU-6050 first named here is I2C-only) and connect the SPI link to the MCU. Wiring table: [`phase-1-folders.md`](phase-1-folders.md#bench).
 - [ ] **Baseline Firmware**: FreeRTOS + F´ reading the 3 sensors over SPI with DMA and voting in C; log timing timestamps.
 - [ ] **Co-Design Firmware**: The same build reading the FPGA's voted frames over SPI with DMA; log timing timestamps.
 - [ ] **Oscilloscope / Logic Analyzer Captures**: Capture physical bus jitter waveforms on GPIO toggle pins.
@@ -82,11 +84,11 @@ Steps 1–2 are the same work as Act I of [`EAGLE_Checklist.md`](EAGLE_Checklist
 - [ ] **Draft Abstract & Introduction**: Frame the COTS reliability challenge for sounding rockets.
 - [ ] **System Architecture Section**: Document the VHDL pipeline and hardware-software partition.
 - [ ] **Evaluation Section**: Embed the latency histograms, WCET comparisons, and fault recovery waveforms.
-- [ ] **Faculty Review**: Review draft with GJU Robotics & Autonomous Systems Hub professors for lab co-authorship.
+- [ ] **Faculty Review**: Review draft with the university lab's faculty for co-authorship.
 - [ ] **Conference Submission**: Submit to target conference (IEEE DASC / ESA PAC).
 
 ---
 
 ## 4. Relationship to the Flight Computer
 
-The benchmark reuses the Act I core and the Act II firmware; it adds a baseline build and the measurements. The flight computer (Acts IV–VI in [`EAGLE_Checklist.md`](EAGLE_Checklist.md)) does not wait for it, and a negative result (the FPGA's advantage disappears end to end) is still a result worth writing up.
+The benchmark reuses the Act I core and the Act II firmware; it adds a baseline build and the measurements. The flight computer (Acts IV–VI in [`EAGLE_Checklist-v1.md`](EAGLE_Checklist-v1.md)) does not wait for it, and a negative result (the FPGA's advantage disappears end to end) is still a result worth writing up.

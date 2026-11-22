@@ -1,52 +1,56 @@
-# EAGLE Project Checklist
+# EAGLE Checklist
 
-> The flight computer is the project. The benchmark in Act III is an optional side experiment; if it holds up, it becomes the paper ([`RESEARCH_PAPER_PLAN.md`](RESEARCH_PAPER_PLAN.md)).
+> Phase A: the decisions in order and the evidence each one is waiting for. No hardware is bought and no
+> code is written in this phase. The roadmap's "EAGLE Act I" to "Act VI" items link here; the last table
+> says where each old Act went.
 
-**Redundancy scope:** Acts I–V make the **sensors** triple-redundant: three IMUs, one MCU, one FPGA. The MCU and the FPGA are still single points of failure. Redundant compute is Act VI.
+## Decisions
 
----
+A box is ticked when the owner accepts the ADR ([ADR-00](docs/adr/ADR-00-process.md) defines the statuses).
 
-## Act I: The FPGA Reflex System & TMR
-*The Cyclone II reads the sensors on a fixed schedule and votes on them.*
-- [ ] **SPI masters:** Synthesizable SPI Mode 0 master in pure `ieee.numeric_std` with a configurable clock divider. One instance per IMU, so all three are sampled on the same clock edge, plus one for the barometer.
-- [ ] **Mid-value voter:** Select the median of the three IMU readings, per axis. Exact majority voting does not work for sensors: three real IMUs never agree bit for bit.
-- [ ] **Fault detector:** 3-bit fault vector that flags a channel which drifts past a threshold from the median or stops responding.
-- [ ] **MCU link (SPI slave):** The MCU reads the voted data and the fault vector over SPI with DMA, at a fixed rate.
-- [ ] **PWM generator:** Drive the airbrake servos and the buzzer.
-- [ ] **Verification:** Self-checking GHDL testbench for each module, including a corrupted sensor and a dead one. GTKWave captures of the clock cycle where a faulty channel is isolated.
-- [ ] **Timing closure:** `eagle.sdc` for the 50 MHz clock; positive setup/hold slack in Quartus TimeQuest.
+- [ ] [ADR-00](docs/adr/ADR-00-process.md): how decisions are recorded *(Proposed 2026-11-22)*
+- [ ] [ADR-01](docs/adr/ADR-01-mission-profile.md): vehicle, validation path, feature scope *(drafted, Proposed 2026-11-22; seven questions for the owner)*
+- [ ] [ADR-02](docs/adr/ADR-02-fault-tolerance.md): fault model, fault-tolerance pattern, degradation and recovery *(drafted, Proposed 2026-11-22; seven questions for the owner)*
+- [ ] [ADR-03](docs/adr/ADR-03-partitioning.md): tiers, function map, FPGA budget, microcontroller *(Scoped 2026-11-22)*
+- [ ] [ADR-04](docs/adr/ADR-04-interchip-icd.md): inter-chip links and ICD *(Scoped 2026-11-22)*
+- [ ] [ADR-05](docs/adr/ADR-05-flight-software.md): F´ deployment, RTOS, MISRA C++:2023 and Power of 10 boundary *(Scoped 2026-11-22)*
+- [ ] [ADR-06](docs/adr/ADR-06-hdl-verification.md): HDL, simulation, formal checks, SITL *(Scoped 2026-11-22)*
 
-## Act II: The RTOS Compute Core
-*FreeRTOS and F´ on the microcontroller. Start this alongside Act I: getting F´ onto the target is the riskiest step in the project, and Act III needs it.*
-- [ ] **Choose the MCU** (STM32 likely) and set up an ARM GCC toolchain (STM32Cube or plain CMake).
-- [ ] **FreeRTOS:** Running on the MCU with preemptive multitasking.
-- [ ] **F´ build:** Cross-compile NASA's F´ framework for the FreeRTOS target.
-- [ ] **F´ heartbeat:** A basic F´ component that sends a serial heartbeat to the laptop, to prove the stack works.
+## Evidence that needs only documents
 
-## Act III: The Aerospace Bridge
-*FPGA and MCU working together on the bench.*
-- [ ] **Bench wiring:** FPGA to the three IMUs and the barometer, SPI link to the MCU. Everything is 3.3 V.
-- [ ] **F´ link component:** A C++ F´ component that reads the FPGA's frames over SPI with DMA at a fixed rate.
-- [ ] **Fault injection:** Disconnect or corrupt one IMU; confirm the fault vector flags it and the voted output stays valid.
-- [ ] **Compliance audit:** Check my own C++ (not the F´ framework, which is a documented deviation) against MISRA C++:2023 and the Power of 10 rules, including no dynamic memory after initialization. Tooling: to be decided.
-- [ ] **Benchmark (optional):** Compare the FPGA core against an MCU-only baseline. Method and fairness rules: [`RESEARCH_PAPER_PLAN.md`](RESEARCH_PAPER_PLAN.md).
+- [ ] Rate-loop crossover and phase margin of the candidate airframe, from a published identification or
+      the vendor, to replace the assumed 10 to 20 Hz and 45° ([ADR-01](docs/adr/ADR-01-mission-profile.md) §1)
+- [ ] E3-2: pin count of the EP2C5 board from its schematic, against the pin list in ADR-04
+- [ ] E4-5: nERROR latency from TI's documentation for the TMS570 or RM57
+- [ ] E4-6: input thresholds of the chosen microcontroller, to size the reset pull-down
+- [ ] E6-1, first half: the VHDL-2008 and SystemVerilog support lists in the Quartus II 13.0 handbook
 
-## Act IV: State Machine & Telemetry
-*Flight logic and data logging.*
-- [ ] **SD card logging:** Integrate or write an SPI driver in F´ for continuous flight data logging to the microSD card.
-- [ ] **Rocket state machine:** The flight states (IDLE, ARMED, ASCENT, APOGEE, DESCENT, TOUCHDOWN) as an F´ component.
-- [ ] **Sub-GHz radio:** Wire a CC1101 radio to the MCU and write an F´ driver that sends CCSDS telemetry frames.
-- [ ] **Flipper Zero ground station:** Receive and decode the telemetry frames on the Flipper's Sub-GHz radio.
+## Evidence that needs a board, a tool install or sandbox code
 
-## Act V: Guidance, Navigation, & Control
-*Estimating the rocket's state and acting on it.*
-- [ ] **Kalman filter:** An F´ component that fuses barometer and IMU data into an altitude and vertical-velocity estimate.
-- [ ] **Airbrake PID:** A PID loop on the error between target and estimated apogee, commanding the FPGA's servo PWM.
-- [ ] **Software-in-the-loop:** Feed simulated flight profiles (Python or MATLAB) into the F´ components on the laptop before any hardware test.
+Each waits until the ADR it serves is Accepted. Sandbox code goes in `hello-project/`, never in EAGLE.
 
-## Act VI: Advanced Aerospace Protocols
-*Stretch goals, after the rest flies.*
-- [ ] **Redundant compute:** Three MCUs run the same F´ deployment; the FPGA compares their outputs 2-out-of-3 (exact match). Needs the replicas kept in step and their outputs deterministic. This removes the MCU as a single point of failure.
-- [ ] **Voter hardening:** The Cyclone II's SRAM configuration can itself be upset. Study mitigations such as TMR inside the voter and periodic reconfiguration.
-- [ ] **CAN node:** A VHDL CAN controller for prioritized telemetry across the system.
-- [ ] **SpaceWire node:** Only worth doing with a partner on the other end that speaks it; STM32s have no SpaceWire peripheral.
+- [ ] E3-1: Quartus fitter reports per block; E3-3: F´ port spike per microcontroller; E3-4: the FPGA
+      versus MCU sampling benchmark (from the archived paper plan); E3-5: CRC_ERROR pass time
+- [ ] E4-1 to E4-4: frame-engine simulation, link timing capture, IMU sample spread on a shared clock,
+      ESC behaviour on frame loss
+- [ ] E5-1 to E5-5: MISRA findings in generated against hand-written F´ code, a strict-flag F´ build,
+      the port spike, WCET method, bit-for-bit determinism over 10⁶ frames
+- [ ] E6-1 second half to E6-4: construct tests in Quartus, simulator run times on the Pi, the formal
+      flow on the laptop, SITL at 500 Hz
+
+## After Phase A
+
+Not started. The implementation phases (supervisor RTL and its proofs, F´ on the chosen microcontroller,
+the HIL bench, the rig, then free flight) are planned from the Accepted ADRs; the archived Acts are a
+starting list, not the plan.
+
+## Where the old Acts went
+
+| Roadmap item | Old content ([`archive/EAGLE_Checklist-v1.md`](archive/EAGLE_Checklist-v1.md)) | Now owned by |
+|---|---|---|
+| Act I: The FPGA Reflex System & TMR | SPI masters, mid-value voter, fault detector, MCU link, PWM, GHDL tests, timing closure | ADR-02 (pattern), ADR-03 (what the FPGA does, budget), ADR-04 (links), ADR-06 (HDL, verification) |
+| Act II: The RTOS Compute Core | MCU choice, FreeRTOS, F´ build, heartbeat | ADR-03 (microcontroller), ADR-05 (RTOS, F´; the heartbeat through `Svc.Health`) |
+| Act III: The Aerospace Bridge | bench wiring, F´ link component, fault injection, compliance audit, optional benchmark | ADR-04 (ICD), ADR-05 (compliance boundary), ADR-06 (fault injection, HIL), ADR-03 evidence E3-4 (benchmark) |
+| Act IV: State Machine & Telemetry | SD logging, rocket flight states, CC1101 radio, Flipper Zero ground station | ADR-01 (logging, ground link, the rocket as alternative profile), ADR-02 (degradation state machine) |
+| Act V: Guidance, Navigation, & Control | Kalman filter, airbrake PID, SITL | ADR-01 (the vehicle decides the GNC), ADR-06 (SITL) |
+| Act VI: Advanced Aerospace Protocols | three MCUs voted 2-out-of-3, voter hardening against SRAM upsets, CAN node, SpaceWire node | ADR-02 (2-out-of-3 is pattern P2; configuration upsets are fault F7), ADR-03 (flash FPGA option), ADR-04 (CAN options; SpaceWire dropped) |
