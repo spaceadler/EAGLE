@@ -1,119 +1,131 @@
-# ADR-01: Mission profile, target vehicle and feature scope
+# ADR-01: Mission profile, target vehicle and test approach
 
 ← [ADR index](../../README.md#decision-records)
 
 | | |
 |---|---|
-| **Status** | Proposed |
+| **Status** | Accepted in part (owner, 2026-11-22): the vehicle, the FlatSat test approach and no camera. Proposed: the scope items listed under "Decision needed from owner" |
 | **Date** | 2026-11-22 |
 | **Depends on** | nothing (root decision) |
-| **Decides** | which vehicle the flight computer is designed for, how it is validated, and which features are in scope |
+| **Decides** | the vehicle, how the flight computer is verified, the flight phases and what each phase demands, the sensors and the actuators |
+
+## Decision (Accepted)
+
+1. **Vehicle: a high-power sounding rocket**, stable on its fins (centre of pressure behind the
+   centre of gravity [3]), with pyro-deployed recovery.
+2. **Test approach: a FlatSat.** The flight computer is built and verified as a FlatSat: its boards laid
+   out on a bench, wired as in flight, and driven by a hardware-in-the-loop rig. Software first and
+   simulation first; the FlatSat measures, the flight demonstrates (§4, §8).
+3. **No camera**, so two tiers: the FPGA and the microcontrollers. A video camera can still fly as a
+   self-contained payload with no link to the flight computer.
+
+The first draft of this ADR recommended a small multirotor; the owner chose the rocket. The two
+arguments the draft made against the rocket are kept, as requirements: a stable airframe means failover
+has to be measured on the FlatSat (§4), and the pyro chain with its apogee window is the hard problem
+(§3, §5). The multirotor, the helicopter and the rover are the rejected alternatives (§9).
 
 ## Context
 
-The fault-tolerance architecture is derived from the vehicle, so the vehicle comes first. Four of its
-properties fix most of what follows:
+A rocket flight computer has a different job from an autopilot. Nothing has to be stabilised every
+millisecond; the computer has to make a few discrete decisions (fire the drogue, fire the main) inside
+their windows, and never make them at the wrong time. What a fault means therefore depends on the flight
+phase: the same crash is harmless in coast and costly at apogee. This ADR fixes the phases, derives what
+each one demands, and fixes the sensors, actuators and test approach that follow.
 
-1. **Stability with the actuators frozen or off.** An unstable plant makes the computer
-   *fail-operational*: it has to keep producing correct commands through a fault. A stable plant allows
-   *fail-safe*: stop, or do nothing, and the vehicle survives.
-2. **The inner-loop rate**, which is the frame period that every link, voter and watchdog in ADR-02 to
-   ADR-04 is sized against.
-3. **The failover budget**: how long commands may be wrong, frozen or missing before the vehicle is lost.
-4. **How many fault-injection trials the vehicle allows**, which decides whether a failover claim can be
-   demonstrated at all.
+## 1. Flight phases
 
-The plan before this study ([`archive/EAGLE_Checklist-v1.md`](../../archive/EAGLE_Checklist-v1.md))
-assumed an amateur rocket with airbrakes. This ADR reopens that choice, because the analysis below finds
-the rocket the weakest of the candidates at exercising a fault-tolerant computer.
-
-## Candidates
-
-| | A. Small multirotor | B. Helicopter (Ingenuity class) | C. High-power sounding rocket | D. Ground rover |
-|---|---|---|---|---|
-| **Plant with actuators frozen** | unstable in attitude | unstable; on the Mars Helicopter the flapping dynamics remove roll and pitch damping [2] | stable in boost and coast while the centre of pressure is behind the centre of gravity [6]; recovery needs pyro events | stable: it stops |
-| **Inner loop, reference** | 400 Hz, ArduCopter's normal main-loop rate; rate loops up to 4 kHz with its fast-rate thread [5] | 500 Hz GNC loop triggered by the IMU on the tethered demonstrator [2]; 500 Hz guidance loops in flight [3] | none needed for stability; an airbrake loop rate is a free choice | tens of Hz for vehicle-level control (*assumption*) |
-| **Failover budget** | 6 to 12 ms for an assumed small-quad rate loop (§1) | 64 ms delay margin on the demonstrator's attitude loop (§1) | seconds in coast, about 1 s at apogee (§3), zero for an early pyro fire | unbounded for safety |
-| **Behaviour required on a computer fault** | fail-operational | fail-operational | fail-operational for "fire at apogee", fail-safe for "never fire early" | fail-safe |
-| **Fault-injection trials** | hundreds per day on a gimbal or tether rig | few (swashplate mechanics, cost) | one flight burns a motor and needs a launch site; motors and ejection charges are regulated (rules vary by country) | thousands per day |
-| **Is a camera useful for flight?** | only for navigation without GNSS (optical flow, VIO), as on Ingenuity [1][3] | same | no; video is payload | for autonomy, never for stability |
-| **What it exercises in a fault-tolerant computer** | all of it, under a deadline | all of it, under a deadline | the pyro inhibit chain; continuous control only if airbrakes fly | detection and switching, never under a deadline |
-
-## Analysis
-
-### 1. Failover budget from the delay margin
-
-A loop with gain crossover ω_c and phase margin φ_m goes unstable when an added pure delay τ uses up the
-margin. The delay e^(−sτ) contributes −ω_c·τ of phase at crossover, so
-
-```text
-τ_max = φ_m / ω_c          (φ_m in radians, ω_c = 2π·f_c)
+```mermaid
+stateDiagram-v2
+    [*] --> pad
+    pad --> boost: liftoff
+    boost --> coast: burnout
+    coast --> apogee: vertical speed near zero, pressure rising
+    apogee --> drogue: drogue fired
+    drogue --> main: main altitude reached, main fired
+    main --> landed: no motion
+    landed --> [*]
 ```
 
-A failover in which the FPGA holds the last good command looks to the loop like a delay as long as the
-hold. One hold is a transient, while τ_max bounds a sustained delay, so τ_max is only a ceiling; the
-allowance has to be a fraction of it.
+| Phase | Entered when (simple form) | The flight computer must |
+|---|---|---|
+| pad | arm switch closed on the rail | report health and continuity; a faulty channel is a no-go |
+| boost | high-g acceleration above a threshold for a minimum time | integrate and log; keep every pyro inhibited |
+| coast | acceleration drops below the burnout threshold | estimate apogee; run the airbrakes if fitted; keep pyros inhibited |
+| apogee | vertical speed near zero and barometric pressure rising | fire the drogue inside the window |
+| drogue | drogue fired | watch altitude; fire the main at the main altitude |
+| main | main fired | log; no further pyro events |
+| landed | no motion for a set time | make the pyros safe; keep the logs |
 
-| Loop | f_c | φ_m | τ_max | Origin |
+Thresholds and times are ADR-05's to set. Barometric pressure is unreliable near Mach 1: transonic
+pressure errors are why some altimeters carry a "Mach delay" [13], while a filter that fuses the
+accelerometer with the barometer makes that delay unnecessary [9]. Either way, apogee detection must not
+trust raw pressure during boost.
+
+## 2. Reference profile (assumptions)
+
+No motor or airframe is chosen yet (owner decision 1). The derivations below use these values; each is an
+*assumption* to be replaced when the vehicle exists.
+
+| Quantity | Value | Basis |
+|---|---|---|
+| Boost acceleration a_b | 10 g (5 to 20 g) | set by the motor |
+| Drag deceleration just after burnout a_d | 2.6 g | ½·ρ·v²·C_d·A / m with v = 250 m/s, ρ = 1.1 kg/m³, C_d = 0.5, a 98 mm airframe (A = 7.5 × 10⁻³ m²), m = 5 kg |
+| Deployment speed the drogue tolerates at apogee, v_dep | 10 m/s | set by the drogue and its shock cord |
+| Drogue descent rate v_d | 25 m/s | set by the drogue size |
+| Main deployment altitude h_main | 200 m above ground | owner choice |
+| Lowest altitude at which the main may still open, h_min | 100 m | owner choice |
+
+## 3. Phase semantics and failover budgets
+
+Two questions per phase: may a pyro fire (fail-safe: it must not; fail-operational: it must, inside a
+window), and how long may the state estimate go without sensor data?
+
+**a. Boost, state.** If sensor frames stop for Δt and the estimator holds the last acceleration, its
+velocity error is at most Δa·Δt, where Δa is how far the true acceleration can move during the gap. The
+worst gap straddles burnout: Δa = a_b + a_d = 12.6 g. A velocity error δv shifts the predicted apogee
+time by δv/g. Allowing 0.1 s of apogee-time error (a tenth of the ±1 s window in c, *target*):
+
+```text
+δv = g · 0.1 s = 0.98 m/s
+Δt_max = δv / Δa = 0.98 / (12.6 · 9.81) = 7.9 ms
+```
+
+An inertial gap longer than about 8 ms in boost therefore cannot be absorbed by dead reckoning. Either the
+estimate survives it (a hot spare, ADR-02), or apogee is confirmed by the barometer, which needs no
+integration.
+
+**b. Coast, state.** After burnout the acceleration changes slowly: drag falls with v². With
+dv/dt = −(g + a_d) = −35.7 m/s² just after burnout, da_d/dt = 2·(a_d/v)·dv/dt = −7.4 m/s³. Holding the last
+acceleration, the error grows as ½·|da_d/dt|·Δt², so the same δv allows
+
+```text
+Δt_max = √(2 · 0.98 / 7.4) = 0.51 s
+```
+
+**c. Apogee window.** Near apogee the vertical speed grows as v ≈ g·|t − t_apogee| on either side (drag
+is small at low speed). Firing within ±v_dep/g keeps the deployment speed under v_dep:
+±10 / 9.81 = ±1.0 s. The fire path's failover gets a tenth of the half-window: **100 ms** (*target*).
+
+**d. Drogue descent to the main.** A main fired Δt late opens at h_main − v_d·Δt. Staying above h_min
+allows Δt ≤ (h_main − h_min)/v_d = (200 − 100)/25 = **4 s**. A main fired early (at apogee) means a long
+drift under the main; that is a recovery problem, not a structural one.
+
+| Phase | Pyro semantics | State semantics | Failover budget | Origin |
 |---|---|---|---|---|
-| Mars Helicopter demonstrator, roll/pitch (inner) | 2.6 Hz | 60° | 64 ms | f_c, φ_m from [2]; τ derived |
-| Mars Helicopter demonstrator, yaw | 1.9 Hz | 58° | 85 ms | [2]; derived |
-| Mars Helicopter demonstrator, heave | 1.2 Hz | 60° | 139 ms | [2]; derived |
-| Mars Helicopter demonstrator, translation (outer) | 0.3 Hz | 56° | 519 ms | [2]; derived |
-| Small quadcopter rate loop | 10 Hz | 45° | 12.5 ms | *assumption*: replace with the airframe's identified model |
-| Small quadcopter rate loop | 20 Hz | 45° | 6.3 ms | *assumption* |
+| pad | fail-safe: no fire; a channel fault is a no-go for launch | – | unbounded (the launch is held) | procedure |
+| boost | fail-safe: no fire | fail-operational | 8 ms of inertial data, or barometer-confirmed apogee | a |
+| coast | fail-safe: no fire; airbrakes, if fitted, retract on a fault | fail-operational | 0.5 s of inertial data | b |
+| apogee | fail-operational: the drogue fires within ±1.0 s | needed for the decision | 100 ms for the fire path | c |
+| drogue | fail-safe for the main above h_main; fail-operational at h_main | barometric altitude | 4 s for the main fire path | d |
+| main, landed | fail-safe: no further fire | logging | unbounded | – |
 
-The Mars Helicopter margins already pay for its known delays: 1 ms for the half-sample hold of the
-500 Hz loop, 4 ms for communication, GNC execution and the asynchronous servos, 2.9 ms of gyro FIR lag
-and 5.8 ms of accelerometer FIR lag [2]. That list is the template for EAGLE's own budget: the sample
-hold, the FPGA hop, the MCU computation and any failover hold all come out of the same φ_m. Only the
-inner loops matter for failover; the outer loops have an order of magnitude more room.
+The 8 ms boost figure is the tightest number in the study, and it constrains the estimate, not the
+pyros: nothing fires in boost.
 
-### 2. Wrong, missing and frozen commands
+## 4. Requirement from the stable airframe: failover is measured on the FlatSat
 
-A failover reaches the actuators in one of three ways, worst first:
-
-| What the motors see | Effect on a multirotor | Who decides |
-|---|---|---|
-| **Wrong**: a faulty channel's command gets through | attitude error θ = ½·α·t², with α the angular acceleration the bad command produces, up to the vehicle's full control authority | the voter or switch (ADR-02) |
-| **Missing**: frames stop | whatever the ESC firmware does on signal loss; if it stops the motor, that is the second-worst outcome for a multirotor | the ESC; measure it for the chosen ESC |
-| **Frozen**: the FPGA repeats the last good command | the vehicle flies open loop for the hold; under a disturbance α_d, θ = ½·α_d·t² | the FPGA's hold-last logic |
-
-How long a single hold may last before the attitude error passes θ_max = 5° (0.087 rad):
-
-| α (rad/s²) | t = √(2·θ_max/α) | Case |
-|---|---|---|
-| 50 | 59 ms | frozen command under a gust (*assumed α*) |
-| 200 | 30 ms | wrong command with high authority (*assumed α*) |
-
-Both are larger than the delay ceilings of an assumed small quad (6 to 12 ms), so the delay margin is
-the binding limit, and it argues for a **failover requirement of one control period**: no actuator
-command older than one frame, 2 ms at 500 Hz and 2.5 ms at 400 Hz (*target*). That leaves a factor of 3
-against the most demanding assumed loop and a factor of 32 against the Mars Helicopter's inner loop.
-
-The same arithmetic applies to the FPGA itself. The EP2C5 is SRAM-based; recovering from a
-configuration upset means reconfiguring it, which takes 47.1 ms typically and 61.2 ms at most in Active
-Serial mode, and a power cycle adds a power-on reset of at least 100 ms [7]. During configuration every
-user I/O is tri-stated with 10 to 50 kΩ weak pull-ups [7], so the actuators see "missing" for 47 to
-61 ms plus the time the upset took to detect. On a multirotor that is 4 to 10 times the assumed
-small-quad ceiling: an in-flight configuration
-upset costs control. On the rocket outside its pyro windows, and on the rover, it is survivable. ADR-02
-and ADR-03 have to answer for this.
-
-### 3. Rocket recovery timing
-
-Near apogee the vertical speed passes through zero and, with drag small at low speed, grows as
-v ≈ g·Δt after it. A drogue fired Δt late opens at about 9.8 m/s for Δt = 1 s and 19.6 m/s for
-Δt = 2 s; the parachute's drag, and roughly its opening load, scale with v², so the second case is four
-times the first. The apogee window is on the order of a second, which every pattern in ADR-02 meets
-with millisecond failover. The hard requirement points the other way: an early fire during boost is
-catastrophic and has no tolerant side. That is an inhibit problem (independent arm and fire conditions,
-a physical arm switch, both required to fire), solved by fail-safe design of the pyro chain; a hot spare
-computer does little for it.
-
-### 4. How many trials a failover claim needs
-
-With zero failures allowed, showing a success probability R at confidence C takes
+The rocket flies the same way whether or not its computer survives a fault, so a flight says almost
+nothing about failover. With zero failures allowed, showing a success probability R at confidence C takes
 
 ```text
 n ≥ ln(1 − C) / ln(R)
@@ -121,135 +133,146 @@ R = 0.99,  C = 0.95  →  n ≥ 298.1  →  299 consecutive successes
 R = 0.999, C = 0.95  →  n ≥ 2,994.2 →  2,995 consecutive successes
 ```
 
-On a rig, one injected fault every 30 s gives 299 trials in about 2.5 hours. A rocket gets at most one
-injection per flight, and nobody injects a fault into a live recovery chain on purpose, so its failover
-can only be shown in hardware-in-the-loop; its flights prove nothing statistically.
+A flight gives at most one injected fault, and nobody injects a fault into a live recovery chain. So
+every failover path is demonstrated on the FlatSat: **at least 299 consecutive clean failovers per path**
+(*target*: 0.99 at 95% confidence), each injected at a chosen moment of a simulated flight, for example
+200 ms before apogee. At one injection every 30 s, 299 trials take about 2.5 hours of FlatSat time.
 
-### 5. Validation path
+## 5. Requirement from the pyro chain
+
+- **Never fire early.** In boost and coast no single fault may fire a pyro channel (one-fault tolerance
+  against inadvertent firing, *target*; NASA asks crewed systems for two [8]).
+- **Fire inside the window.** No single fault of the computing channels may stop the drogue firing within
+  ±1.0 s of apogee, or the main within 4 s of h_main (ADR-02). A fault in the firing hardware itself is
+  covered by an independent backup altimeter with its own battery and charges, outside EAGLE.
+- **Staged arming.** A physical arm switch closes on the pad and connects a separate pyro battery, as on
+  TeleMega, which has its own pyro battery and switch [9]. The electronic arm stage closes later, in
+  coast, following NASA's guidance to arm a firing circuit only when firing is imminent [8].
+- **Who may fire.** The microcontrollers decide *when* (estimate and phase). The FPGA decides *whether*,
+  from a few simple checks on raw sensor data (liftoff latched, minimum time since liftoff, no thrust on
+  the high-g accelerometer, pressure rising for N frames), and it drives the high-side switch; the
+  microcontrollers drive the low-side switch. Keeping the two sides in separate fault containment regions,
+  with the state of every inhibit monitored, is NASA's practice [8]. ADR-02 analyses this chain and
+  ADR-04 defines its pins.
+
+## 6. Sensors
+
+| Sensor | Proposed | Notes |
+|---|---|---|
+| IMUs | 3 × ICM-42688-P | the accelerometer's full scale is ±16 g [5], which a boost can exceed; the IMUs supply rates and attitude, the high-g part supplies boost acceleration. Three only if ADR-02 needs IMU fault tolerance |
+| High-g accelerometer | 1 or 2 × ADXL375 | ±200 g, SPI or I²C [10]; TeleMega v4 to v6 fly the ADXL375 [9] |
+| Barometer | 1 or 2, for example MS5611 | 10 to 1,200 mbar extended range, full accuracy from 450 to 1,100 mbar, SPI to 20 MHz [11]; TeleMega's MS5607 is rated to 30 km [9]. The target apogee picks the part |
+| GNSS | optional, for recovery location | u-blox F9 and M10 datasheets give operational limits of 500 m/s, 4 g and 80,000 m for an airborne 4 g platform [12]: the receiver can drop out in boost. Never part of the fire decision |
+| Magnetometer | optional | attitude reference |
+
+## 7. Actuators and other features
+
+| Feature | Proposed | Notes |
+|---|---|---|
+| Pyro channels | 2 (drogue, main), each with an arm stage, high-side and low-side switches, and continuity sensing | after NASA's notional firing circuit [8] |
+| Airbrakes | optional (owner decision 4) | a servo, 1 to 2 ms pulses about every 20 ms [7]; coast only; on a fault they retract, never deploy asymmetrically |
+| Backup deployment | an independent altimeter, own battery and charges | outside EAGLE; covers the FPGA's high-side switch as a single point |
+| Ground commanding | F´ GDS over a serial radio | the archived plan's CC1101 link and Flipper Zero ground station are an option |
+| Fault log | every detection, switch, reset, power cycle, arm and fire event, with timestamp and frame sequence | medium (SD card or SPI flash) open |
+| Camera | none | owner decision |
+
+## 8. The FlatSat
+
+A FlatSat is spacecraft avionics laid out flat on a bench, where every part is reachable [16]; NASA
+Goddard lists "Flat Sat Integration" among its integration-and-test services [17]. For EAGLE it is the
+place where the flight computer is integrated and where its failover numbers are measured.
 
 ```mermaid
 flowchart TB
-    sitl["SITL<br/>F´ on Linux + plant model"] --> hil["HIL<br/>real FPGA and MCUs, simulated plant"]
-    hil --> rig["Constrained rig<br/>multirotor on a gimbal or tether"]
-    rig -.->|"only after 299 clean failovers (target)"| free["Free flight"]
+    host["HIL host<br/>simulated flight, fault injection"] -->|"sensor stimuli"| stim["sensor emulators<br/>or the real sensors"]
+    stim --> fc["flight computer boards<br/>FPGA, 2 MCUs, flight binaries"]
+    fc -->|"fire pulses"| loads["e-match simulators<br/>current measured"]
+    fc -->|"telemetry, logs"| host
+    loads -->|"fire time, current"| host
 ```
 
-Each step keeps the unstable plant, real or simulated. A rover is a poor validation vehicle for an
-aerial design: its safe state (stop) hides exactly the behaviour this architecture exists for, holding
-control through a fault under a deadline. It is still a cheap bench for bringing up the links (ADR-04)
-and the fault log.
+- **Contents:** the FPGA board, the microcontroller boards, the sensor boards, pyro channel boards
+  firing into e-match simulators, the flight battery or a current-logging bench supply, and the flight
+  harness. The HIL host replays or simulates flights and injects faults.
+- **Flight profiles:** from RocketPy (6-degree-of-freedom trajectories, MIT licence [14]) or OpenRocket
+  (GPL [15]).
+- **Order:** SITL, then an emulated FlatSat (every board a software model), then the hardware FlatSat,
+  then flight. An emulated FlatSat is useful early, but software simulation "does not replace hardware
+  flat-sat tests" [18]. ADR-06 owns the details.
+- **Same binaries:** the FlatSat runs the flight binaries unchanged, so what is tested is what flies, in
+  the sense of the Aerospace Corporation's "test like you fly" process [19].
+- **Statistics:** the 299 clean failovers per path of §4 are counted here.
 
-### 6. Feature scope
+## 9. Alternatives considered and rejected
 
-| Feature | Proposed scope | Notes |
-|---|---|---|
-| IMUs | 3 × ICM-42688-P | Already chosen (the MPU-6050 of the old plan is I2C-only). SPI to 24 MHz, ODR up to 32 kHz, and an external clock input for sample synchronisation [8]. Three are needed only if ADR-02 requires flying through an IMU fault; Ingenuity carries two IMUs [1] and does not continue a flight after a sensor fails [3]. |
-| Barometer | 1, part open | Altitude hold; apogee detection in the rocket profile |
-| Magnetometer, GNSS | out for rig and indoor flight, in for outdoor flight | Owner decision 4 |
-| Estimation | attitude and vertical channel at the loop rate | Position only with GNSS or vision |
-| Motor actuators | 4 ESCs over DShot600 | Fixed 16-bit frame (11 throttle, 1 telemetry request, 4 CRC), 26.7 µs per frame [9]; a fixed frame with a CRC suits generation in the FPGA. PWM is the fallback. |
-| Servos | rocket airbrakes or a camera gimbal only | 1 to 2 ms pulse about every 20 ms [10] |
-| Pyro | rocket profile only | Two channels, independent arm and fire, physical arm switch |
-| Ground commanding | F´ GDS over a serial radio | The old plan's CC1101 Sub-GHz link and Flipper Zero ground station remain an option |
-| Fault logging | every detection, switch, reset and power cycle, with timestamp and frame sequence, to non-volatile storage; fault counters in the FPGA readable over the ICD | Medium (SD card or SPI flash) open |
-| Camera | out of scope | See below |
+| | Small multirotor | Helicopter (Ingenuity class) | Ground rover |
+|---|---|---|---|
+| Why it was considered | an unstable plant exercises fail-operational control in every frame | the benchmark itself | the cheapest to test |
+| Numbers that came with it | rate controllers at ArduCopter's 400 Hz main loop [2]; delay margin φ_m/ω_c of 6 to 12 ms for an assumed 10 to 20 Hz, 45° rate loop; a failover target of one control period (2 to 2.5 ms); ESCs over DShot600, 26.7 µs per frame [6] | 500 Hz GNC loop; 64 ms delay margin on the demonstrator's attitude loop (2.6 Hz, 60° [1]) | vehicle loops of tens of Hz |
+| Why it was rejected | the owner chose the rocket. It also needs a rig and a flying site, and the EP2C5's 47 to 61 ms reconfiguration [4] is 4 to 10 times its assumed margin: a loss of control | swashplate mechanics and cost | its safe state (stop) hides the behaviour the architecture exists for |
 
-**The camera.** A camera that only records is a self-contained module with no link to the flight
-computer and needs no architecture. A camera that navigates brings a Linux board (Tier 1), seconds of
-boot time (to be measured), a power budget, and a new failure class: on Ingenuity's sixth flight a
-single lost navigation image left every later image with a wrong timestamp, and the vehicle rolled and
-pitched more than 20° before landing [4]. That is worth the complexity only if the mission must fly
-without GNSS. Without it, ADR-03 starts from two tiers.
-
-## Recommendation
-
-1. **Reference profile: a small multirotor (quadcopter)**, fail-operational, inner loop 400 to 500 Hz,
-   failover requirement *no actuator command older than one control period* (2 to 2.5 ms, target).
-2. **Keep the sounding rocket as a documented alternative profile** with its own requirement set (pyro
-   inhibit chain, about 1 s apogee window); the multirotor drives the design.
-3. **Validate through SITL, HIL and a constrained rig**, with no free flight before the rig has shown the
-   failover 299 times in a row (target: 0.99 at 95% confidence).
-4. **Feature scope as in §6**: no camera, two tiers as ADR-03's starting point.
-
-The multirotor is the only candidate in which the fault-tolerant computer is needed every millisecond,
-it matches the benchmark (Ingenuity: an unstable rotorcraft, 500 Hz, a hot spare), and it can be tested
-hundreds of times a day on a rig. The rocket's critical function is a pyro inhibit chain, which wants
-fail-safe hardware more than a voting computer. The rover never needs a failover at all.
-
-### Requirements handed to ADR-02
-
-| Id | Requirement | Origin |
-|---|---|---|
-| R1 | Keep flying through any single fault of one computing channel | §1, unstable plant |
-| R2 | No actuator command older than one control period during a failover (*target*) | §1, §2 |
-| R3 | A wrong command reaches the actuators for at most one frame (*target*) | §2 |
-| R4 | The FPGA's own configuration upset is either survivable or recorded as an accepted risk | §2 |
-| R5 | Every failover path can be injected on the rig at least 299 times | §4 |
-| R6 | Every fault event is logged with timestamp and frame sequence | §6 |
-
-## Consequences
-
-- The airbrake and apogee-control work of the archived plan stops driving the design; it lives on in
-  the alternative profile.
-- A gimbal or tether rig has to be built; that mechanical work sits outside this study.
-- The SRAM FPGA in the actuator path stops being a footnote: 61 ms of reconfiguration is a loss of
-  control on the reference vehicle (R4).
-- R2 rules out every pattern that needs a cold restart of the active channel before commands resume.
-
-## What would change this
-
-- No place to rig or fly a multirotor, but access to a rocketry club and launch site: the rocket profile
-  becomes the driver, and ADR-02's weight moves to the pyro inhibit chain.
-- An identified model of the real airframe with much more delay margin than assumed (a large, slow
-  multirotor): R2 relaxes.
-- A mission that must navigate without GNSS: the camera comes in, and with it Tier 1.
+The rocket turns that last problem around: 47 to 61 ms fits inside every rocket budget of §3 except the
+8 ms boost estimate, which barometer-confirmed apogee covers. ADR-02 works through it.
 
 ## Decision needed from owner
 
-1. Reference vehicle: quadcopter (recommended), sounding rocket (the original plan), or both with one
-   of them as the driver?
-2. Is a gimbal or tether rig acceptable as the step before free flight, and is there somewhere to fly?
-3. Camera out of scope (recommended), or GNSS-free navigation in scope, which brings Tier 1?
-4. Rig and indoor flight only in Phase A, or outdoor flight with GNSS and a magnetometer?
-5. ESC protocol: DShot600 (recommended for FPGA generation) or PWM?
-6. Ground link: keep the CC1101 and Flipper Zero ground station, or another radio?
-7. Three IMUs to fly through an IMU fault, or two and land on a sensor fault as Ingenuity does?
-   (Coupled to ADR-02.)
+1. Target apogee and motor class. These set a_b, the Mach regime, the barometer and the GNSS limits, and
+   replace the assumptions of §2.
+2. Recovery: dual deploy (drogue and main, proposed) or a single deployment?
+3. The drogue's tolerable deployment speed (10 m/s assumed, which sets the ±1 s window) and the main
+   altitude (200 m assumed)?
+4. Airbrakes in scope?
+5. GNSS in scope, for recovery location?
+6. An independent backup altimeter with its own charges (proposed)?
+7. Sensor counts: three IMUs, one or two high-g accelerometers, one or two barometers?
+8. Ground link: keep the CC1101 and Flipper Zero ground station, or another radio?
 
 ## Sources
 
-1. J. Balaram, T. Canham, C. Duncan, H. F. Grip, W. Johnson, J. Maki, A. Quon, R. Stern, D. Zhu,
-   "Mars Helicopter Technology Demonstrator," AIAA Atmospheric Flight Mechanics Conference, 2018,
-   DOI 10.2514/6.2018-0023.
-   <https://rotorcraft.arc.nasa.gov/Publications/files/Balaram_AIAA2018_0023.pdf>
-2. H. F. Grip, D. P. Scharf, C. Malpica, W. Johnson, M. Mandic, G. Singh, L. A. Young, "Guidance and
-   Control for a Mars Helicopter," AIAA Guidance, Navigation, and Control Conference, 2018,
-   DOI 10.2514/6.2018-1849, §IX (500 Hz loop, delay budget, crossover frequencies and margins).
-   <https://rotorcraft.arc.nasa.gov/Publications/files/Grip_AIAA2018_1849.pdf>
-3. E. Ackerman, interview with T. Canham (JPL), "How NASA Designed a Helicopter That Could Fly
-   Autonomously on Mars," IEEE Spectrum, 2021 (500 Hz guidance loops, 30 Hz feature tracking, landing on
-   a sensor fault).
-   <https://spectrum.ieee.org/automaton/aerospace/robotic-exploration/nasa-designed-perseverance-helicopter-rover-fly-autonomously-mars>
-4. H. F. Grip, "Surviving an In-Flight Anomaly: What Happened on Ingenuity's Sixth Flight," NASA, 27 May 2021.
-   <https://science.nasa.gov/blog/surviving-an-in-flight-anomaly-what-happened-on-ingenuitys-sixth-flight/>
-5. ArduPilot, "Aggressive Rate Loop Tuning" (rate controllers at the main-loop rate, 400 Hz given as the
-   normal speed; fast-rate thread up to 4 kHz on H7 boards).
-   <https://ardupilot.org/copter/docs/high-loop-rate-tuning.html>
-6. NASA Glenn Research Center, Beginner's Guide to Aeronautics, "Rocket Stability."
+1. H. F. Grip et al., "Guidance and Control for a Mars Helicopter," AIAA GNC Conference, 2018,
+   DOI 10.2514/6.2018-1849, §IX. <https://rotorcraft.arc.nasa.gov/Publications/files/Grip_AIAA2018_1849.pdf>
+2. ArduPilot, "Aggressive Rate Loop Tuning." <https://ardupilot.org/copter/docs/high-loop-rate-tuning.html>
+3. NASA Glenn Research Center, Beginner's Guide to Aeronautics, "Rocket Stability" (the centre of pressure
+   must lie behind the centre of gravity).
    <https://www1.grc.nasa.gov/beginners-guide-to-aeronautics/rocket-stability/>
-7. Altera, Cyclone II Device Handbook, Volume 1, February 2007: Chapter 4 (power-on reset, wake-up
-   time), Table 5–3 (R_CONF 10/25/50 kΩ), Chapter 13 (AS configuration time for the EP2C5, 61.2 ms max,
-   47.1 ms typical; Table 13–7, POR delay 100 ms minimum for non-"A" devices).
+4. Altera, Cyclone II Device Handbook, Volume 1, February 2007: Chapter 4 (power-on reset), Table 5–3
+   (R_CONF), Chapter 13 (EP2C5 AS configuration, 61.2 ms max, 47.1 ms typical).
    <https://www.cs.columbia.edu/~sedwards/classes/2008/4840/cyc2_cii5v1.pdf>
-8. TDK InvenSense, ICM-42688-P product brief PB-000072 rev. 1.0, 2020 (24 MHz SPI, 32 kHz ODR with
-   external clock sync, 2 kB FIFO). <https://www.farnell.com/datasheets/3045877.pdf>
-9. "DShot and Bidirectional DShot," brushlesswhoop.com (16-bit frame layout, DShot600 bit period
-   1.67 µs, frame 26.72 µs, CRC). <https://brushlesswhoop.com/dshot-and-bidirectional-dshot/>
-10. Pololu, "Servo control interface in detail" (1 to 2 ms pulses, about 20 ms period).
-    <https://www.pololu.com/blog/17/servo-control-interface-in-detail>
+5. TDK InvenSense, ICM-42688-P product brief PB-000072 (accelerometer full scale ±2/4/8/16 g, 24 MHz SPI,
+   external clock input). <https://www.farnell.com/datasheets/3045877.pdf>
+6. "DShot and Bidirectional DShot," brushlesswhoop.com. <https://brushlesswhoop.com/dshot-and-bidirectional-dshot/>
+7. Pololu, "Servo control interface in detail." <https://www.pololu.com/blog/17/servo-control-interface-in-detail>
+8. NASA Engineering and Safety Center, Technical Bulletin 23-01, "Including Key Design Features in
+   Safety-Critical Pyrotechnic Firing Circuits," 15 March 2023 (two-fault tolerance for crewed systems,
+   arm only when firing, inhibit monitors, separate fault containment regions).
+   <https://ntrs.nasa.gov/api/citations/20230001889/downloads/TB_23-01_Pyro%20Best%20Practices_031523.pdf>
+9. Altus Metrum, AltOS documentation: hardware specifications (TeleMega v4 to v6: MS5607 rated to 30 km,
+   ADXL375 200 g, u-blox MAX-8Q; separate pyro battery and switch)
+   <https://sources.debian.org/src/altos/1.9.16-2/doc/specs.inc>, and "System Operation" (a Kalman filter
+   removes the need for a Mach delay) <https://keithp.com/~keithp/altusmetrum-sphinx/systemoperation.html>
+10. Analog Devices, ADXL375 data sheet (±200 g, SPI and I²C, 49 mg/LSB typical).
+    <https://www.analog.com/en/products/adxl375.html>
+11. TE Connectivity, MS5611-01BA03 data sheet.
+    <https://static6.arrow.com/aropdfconversion/9b400750fb9e045bbfb60b6c883d793ed0702c5d/engdsms561101ba03b3.pdf>
+12. u-blox, ZED-F9P-04B data sheet UBX-21044850, operational limits.
+    <https://cdn.sparkfun.com/assets/a/8/5/f/5/ZED-F9P-04B_DataSheet_UBX-21044850.pdf>
+13. US Patent 11,898,828, "Closed, self-contained ballistic apogee detection module and method" (Mach
+    delays as a heuristic for pressure errors near the speed of sound).
+    <https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/11898828>
+14. RocketPy. <https://pypi.org/project/rocketpy>
+15. OpenRocket. <https://github.com/openrocket/openrocket>
+16. EPFL Spacecraft Team, "EST Flatsat Report," 2025.
+    <https://espace.epfl.ch/wp-content/uploads/2025/07/EST_Flatsat_Report_2025.pdf>
+17. NASA Goddard, Engineering and Technology Directorate, "Flight Systems Integration and Test."
+    <https://etd.gsfc.nasa.gov/capabilities/capabilities-listing/flight-systems-integration-and-test/>
+18. M. Cols Margenet, H. Schaub, S. Piggott, "Avionics Hardware Modeling and Embedded Flight Software
+    Testing in an Emulated Flat-Sat," AAS 20-103, 2020. <https://hanspeterschaub.info/Papers/ColsMargenet2020.pdf>
+19. J. D. White, "Test Like You Fly: Assessment and Implementation Process," Aerospace Corporation,
+    TOR-2010(8591)-6, 2010. <https://aerospace.org/sites/default/files/maiw/TOR-2010(8591)-6.pdf>
 
 ## History
 
 | Date | Change |
 |---|---|
-| 2026-11-22 | Drafted; Proposed |
+| 2026-11-22 | Drafted; Proposed, recommending a small multirotor |
+| 2026-11-22 | Owner decision: sounding rocket, FlatSat test approach, no camera (Accepted). Rewritten around the rocket profile; the multirotor, helicopter and rover moved to §9; the open questions they raised (rig, camera, ESC protocol, indoor or outdoor flight) dropped as moot |

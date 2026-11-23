@@ -26,8 +26,10 @@ redundancy pattern, the pattern sizes the FPGA), so they are taken top-down in a
 | **Accepted** | The owner has decided. The decision, the date and any changes to the recommendation go into the History table. | owner only |
 | **Superseded** | A later ADR replaces it. Both link to each other; the old text stays as it was. | owner |
 
-Only the owner moves an ADR to Accepted. An ADR is never edited into a different decision after it is
-Accepted: a changed mind is a new ADR that supersedes it.
+Only the owner moves an ADR to Accepted. An ADR can be accepted in parts: its header then names the parts
+that are Accepted and the parts still Proposed, and the History table records the owner's decision,
+including any change to the recommendation (ADR-01 is the first case). An ADR is never edited into a
+different decision after it is Accepted: a changed mind is a new ADR that supersedes it.
 
 ## Order and dependencies
 
@@ -119,3 +121,4 @@ Copy this for a new ADR. Delete sections that do not apply to a Scoped ADR (Reco
 | Date | Change |
 |---|---|
 | 2026-11-22 | Drafted; Proposed |
+| 2026-11-22 | Partial acceptance added, after the owner accepted part of ADR-01 |

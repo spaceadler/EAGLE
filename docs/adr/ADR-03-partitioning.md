@@ -6,41 +6,48 @@
 |---|---|
 | **Status** | Scoped |
 | **Date** | 2026-11-22 |
-| **Depends on** | [ADR-01](ADR-01-mission-profile.md) (camera and tiers, actuators, IMU count), [ADR-02](ADR-02-fault-tolerance.md) (pattern, number of MCUs, lockstep or not, voter or switch) |
-| **Decides** | how many tiers there are, which tier owns each function, what the FPGA's resource budget is, and which microcontroller and optional Linux board are used |
+| **Depends on** | [ADR-01](ADR-01-mission-profile.md) (Accepted in part: sounding rocket, FlatSat, two tiers; sensors and pyro channels), [ADR-02](ADR-02-fault-tolerance.md) (pattern, fire chain, the three FPGA rules) |
+| **Decides** | which tier owns each function, the FPGA's resource budget, whether the EP2C5 flies or only serves the FlatSat, and which microcontroller is used |
 
 ## Context
 
-ADR-02 (Proposed) recommends pair-and-spare: two lockstep MCUs and an FPGA that selects, holds, watches
-and power-cycles. That recommendation fixes the shape of this ADR but not its answers: if the owner
-picks 2-out-of-3 voting instead, the FPGA gains an aligner and a voter and the MCU class opens up. This
-ADR therefore records the numbers that hold for every option now and leaves the choices for when
-ADR-01 and ADR-02 are Accepted.
+ADR-01 settled two tiers: an FPGA supervisor and RTOS microcontrollers, no Linux board, because there is
+no camera. ADR-02 (Proposed) recommends pair-and-spare with lockstep MCUs and puts the pyro fire chain's
+interlock, electronic arm and high-side switch in the FPGA and the low-side switch in the MCUs. This ADR
+records the numbers that hold for every remaining option and leaves the choices for when ADR-02 is
+Accepted.
 
 ## Questions
 
-1. Two tiers (FPGA and MCUs) or three (plus a Linux board)? ADR-01 recommends no camera, which means two.
-2. Which tier owns each function? Every function lives on exactly one tier.
-3. What is the FPGA budget (logic elements, flip-flops, M4K blocks, multipliers, PLLs, I/O, clock), with
+1. Which tier owns each function? Every function lives on exactly one tier.
+2. What is the FPGA budget (logic elements, registers, M4K blocks, multipliers, PLLs, clocks, I/O), with
    every resource under 70 to 75% utilisation?
-4. Is the EP2C5 the supervisor for free flight, or only for rig flights (ADR-01's R4)?
-5. Which microcontroller? With ADR-02's P1 the choice is limited to lockstep parts.
-6. If there is a Tier 1: which board, and what is it trusted with?
+3. Does the EP2C5 fly, under ADR-02's three rules, or does it only serve the FlatSat, with a flash FPGA
+   for flight?
+4. Which microcontroller? Lockstep parts for P1; the field opens for P4.
+5. Where does MVS run, and does the FPGA's interlock read raw barometer counts (coarse but independent
+   of the MCUs) or the MCUs' compensated pressure (accurate but not independent)?
+6. How does the FlatSat feed the sensors: emulators on the flight SPI buses, or an injection mode in the
+   FPGA? (ADR-06 decides; this ADR carries the I/O cost.)
 
 ## Function map
 
-"Follows" means an upstream ADR (still Proposed) decides it; "open" means this ADR decides it.
+"Follows" means an upstream ADR decides it (ADR-02 is still Proposed); "open" means this ADR decides it.
 
-| Function | FPGA | MCU | Linux board | Status |
-|---|---|---|---|---|
-| Sensor sampling trigger, timestamps, one broadcast frame per period | candidate | possible (MCU as SPI master) | no | open: ADR-04 sample ownership and evidence E3-4 |
-| Sensor MVS and plausibility checks | candidate | candidate | no | open: depends on ADR-01's IMU count and the LE budget |
-| Watchdogs, lockstep-error monitor, channel select, MCU reset and power control | yes | no | no | follows ADR-02: the supervisor sits outside the channels it supervises |
-| Hold-last and actuator frame generation (DShot, servo PWM) | candidate | possible | no | open: ADR-02's failover path favours the FPGA |
-| Estimation, control laws, flight modes | no | yes | no | follows ADR-02's asymmetric simplicity; capacity alone would allow some of it (the EP2C5 has 13 multipliers) |
-| Fault log | counters and a small RAM log | candidate (SD card or SPI flash) | candidate | open |
-| Ground link (F´ GDS) | no | yes with two tiers | yes with three tiers | follows Q1 |
-| Vision, autonomy | no | no | yes | only if ADR-01 brings in a camera |
+| Function | FPGA | MCU | Status |
+|---|---|---|---|
+| Sensor sampling trigger, timestamps, one broadcast frame per period | candidate | possible (MCU as SPI master) | open: ADR-04 sample ownership, evidence E3-4 |
+| Sensor MVS and plausibility checks | candidate | candidate | open (Q5) |
+| Watchdogs, lockstep-error monitor, channel select, MCU power control | yes | no | follows ADR-02: the supervisor sits outside the channels it supervises |
+| Estimation, flight-phase machine, the decision *when* to fire | no | yes | follows ADR-02's asymmetric simplicity |
+| Fire interlock (the decision *whether*), electronic arm, high-side drive, fire-pulse timing | yes | no | follows ADR-02 §5 |
+| Low-side drive | no | yes, either MCU (wired-OR) | follows ADR-02 §5 (its owner decision 4) |
+| Continuity and switch-state monitoring | digital comparator inputs | ADC readings | open |
+| Airbrake servo PWM, if fitted | candidate | possible | open |
+| Fault log | counters and a small RAM log | SD card or SPI flash | open |
+| GNSS, if fitted | no | yes (UART) | open |
+| Ground link (F´ GDS) | no | yes | follows ADR-01 (two tiers) |
+| Backup deployment | – | – | an independent altimeter, outside EAGLE (ADR-01) |
 
 ## The FPGA: EP2C5T144C8
 
@@ -69,7 +76,7 @@ Device Handbook [1] unless marked.
 
 The I/O row is the package limit. The cheap EP2C5T144 boards bring out fewer pins on their headers, and
 some are taken by the oscillator, LEDs, buttons and the configuration device, so the real limit is the
-board's header count (evidence E3-2).
+board's header count (evidence E3-2). ADR-04's pin list comes to about 57 signals for P1 and 64 for P2.
 
 ### First-order block estimates
 
@@ -79,45 +86,47 @@ comparators take about one LE per bit in arithmetic mode [1, ch. 2]. Fitter repo
 
 | Block | Basis | LEs | M4K |
 |---|---|---|---|
-| SPI master, one IMU burst read | 16-bit shift register, clock divider, bit and byte counters, small FSM | 60 to 90 | 0 |
-| Sensor frame store (3 IMUs, barometer) | dual-port RAM and addressing | 10 to 20 | 1 |
+| SPI master, one sensor burst read | 16-bit shift register, clock divider, bit and byte counters, small FSM | 60 to 90 | 0 |
+| Sensor frame store (IMUs, high-g, barometer) | dual-port RAM and addressing | 10 to 20 | 1 |
 | Frame engine, per MCU link | shift register, 16-bit sequence counter, CRC-16 at 8 bits per clock, framing FSM | 120 to 180 | shared |
 | Watchdog, per channel | 20-bit timeout counter (21 ms at 50 MHz), compare, latch | 30 to 40 | 0 |
 | MVS, serial: one axis per clock over 6 axes | three 16-bit compares, a 16-bit 3:1 select, tolerance subtract and compare | 150 to 220 | 0 |
 | MVS, fully parallel over 6 axes | six copies of the serial unit | 900 to 1,300 | 0 |
-| A/B command compare, byte-serial | 8-bit compare, counter, mismatch latch | 20 to 40 | 0 |
-| Hold-last and output select | last good command per channel in RAM, select | 40 to 80 | shared |
-| DShot600 encoder, per motor | 16-bit shift register, bit timer, 4-bit CRC | 40 to 60 | 0 |
+| A/B output compare, byte-serial | 8-bit compare, counter, mismatch latch | 20 to 40 | 0 |
+| Hold-last and output select (airbrake command) | last good command per channel, select | 20 to 40 | 0 |
+| Fire interlock and electronic arm | liftoff threshold and persistence counter, minimum-time counter, no-thrust compare, pressure-rising counter, main-pressure compare, small FSM | 150 to 220 | 0 |
+| Pyro channel, per channel | fire-pulse timer, high-side drive, state latch, monitor inputs | 30 to 50 | 0 |
 | Servo PWM, per channel, 1 µs steps | compare against a shared 15-bit counter | 20 to 30 | 0 |
-| Supervisor FSM | modes, channel select, retry counters, reset and power control | 150 to 300 | 0 |
-| TMR of supervisor state | triplicated registers and majority | 50 to 100 | 0 |
+| Supervisor FSM | modes, channel select, retry counters, power control | 150 to 300 | 0 |
+| TMR of supervisor and interlock state | triplicated registers and majority | 75 to 125 | 0 |
 | Event log and 32-bit timestamp | 256 × 32-bit log, write pointer, counter | 50 to 80 | 2 |
 | Debug UART transmitter (`UART_TX` repo) | the existing module, never synthesized for a count | 40 to 60 | 0 |
 
-Two envelopes, to show the budget is not the binding constraint (both with 3 IMUs, a barometer,
-4 DShot channels, 2 servo channels and serial MVS):
+Envelopes, with 3 IMUs, one high-g accelerometer, one barometer, 2 pyro channels, one airbrake servo and
+serial MVS:
 
 | Pattern (ADR-02) | Main differences | LEs, mid estimate | Share of 4,608 | At +50% |
 |---|---|---|---|---|
-| P1, pair-and-spare | 2 MCU links, 2 watchdogs, select and compare | about 1,620 | 35% | about 2,430 (53%) |
-| P2, 2-out-of-3 | 3 MCU links, 3 watchdogs, alignment, voter and resync (about 270) | about 2,050 | 44% | about 3,080 (67%) |
+| P1, pair-and-spare | 2 MCU links, 2 watchdogs, select and compare | about 1,740 | 38% | about 2,610 (57%) |
+| P4, asymmetric pair | as P1 without the lockstep-error inputs | about 1,740 | 38% | about 2,610 (57%) |
+| P2, 2-out-of-3 | 3 MCU links, 3 watchdogs, alignment, voter and resync (about 270) | about 2,160 | 47% | about 3,240 (70%) |
 
-P2 with a fully parallel MVS would add about 900 LEs and pass the 75% ceiling at the high end of the
-estimate. M4K use stays at 6 blocks or fewer, multipliers at zero (a Simplex envelope check of the form
-xᵀPx < c for six states needs n² + n = 42 multiplications per frame, which one multiplier does in
-under a microsecond at 50 MHz), PLLs at one.
+A second high-g accelerometer and a second barometer add about 150 LEs. P2 with a fully parallel MVS would
+pass the 75% ceiling at the high end of the estimate. M4K use stays at 6 blocks or fewer, multipliers at
+zero, PLLs at one. The budget does not bind; the configuration behaviour does.
 
-### Is the EP2C5 a good fit?
+### Does the EP2C5 fly?
 
 | Criterion | Assessment |
 |---|---|
-| Capacity | fits both envelopes with room |
+| Capacity | fits every envelope with room |
 | Speed | C8 is the slowest grade; byte-serial logic at 50 MHz is a modest target, but timing closure still has to be shown (E3-1) |
-| Configuration | weak fit for an always-on supervisor in the actuator path of an unstable vehicle: no upset immunity, about 160 ms cold start, 47 to 61 ms reconfiguration, weak pull-ups on every pin during configuration (ADR-02 §4) |
+| Configuration | acceptable for the rocket under ADR-02's three rules (barometer-confirmed apogee, MCU resets decoupled from FPGA configuration, a fast CRC check with interlock restore): 47 to 61 ms of reconfiguration fits every phase budget except the 8 ms boost estimate. Still a weak part for an always-on supervisor: no upset immunity, about 160 ms cold start, weak pull-ups on every pin while configuring |
 | Toolchain | one frozen, x86-only toolchain from 2013 with partial VHDL-2008 support (ADR-06) |
 | Cost of keeping it | none: it is owned, and the tools are free |
 
-Alternatives, for the owner to weigh if the configuration row decides it:
+If the owner prefers upset immunity for flight, these families are the alternatives; the EP2C5 can stay
+the FlatSat development part either way:
 
 | Part family | Configuration | Relevance |
 |---|---|---|
@@ -139,12 +148,15 @@ Alternatives, for the owner to weigh if the configuration row decides it:
 The TMS570 and RM57 rows come from TI's product pages [9][10]. TI also sells a space-enhanced plastic
 TMS570LC4357-SEP. With ADR-02's P1, only the first three rows qualify, and none of them has an F´ port:
 whichever one gets a working F´ deployment first in the ADR-05 port spike has a real claim to the slot.
+If P4 takes over, the RP2350 and the Teensy 4.1 (also an F´ Zephyr reference built in CI [7]) come back in.
 
-## Optional Linux board (Tier 1)
+## The FlatSat's share of the partition
 
-Only if ADR-01 brings in a navigation camera. A Raspberry Pi running Linux is an F´ supported platform
-with a reference project built in F´'s CI [7]. If it exists, it is trusted with nothing in the
-commanded path: it sends set-points and receives telemetry, like Ingenuity's Snapdragon.
+The FlatSat (ADR-01 §8, ADR-06) adds test equipment around the flight boards: e-match simulators on the
+pyro channels, a current-logging supply, an HIL host, and, if ADR-06 picks emulation, sensor emulators that
+answer on the flight SPI buses. Emulators sit on the same buses as the real sensors, so the flight FPGA
+logic is the same on the bench and in flight; an injection mode inside the FPGA would add logic and pins
+that must be impossible to enable in flight (ADR-06).
 
 ## Evidence that would settle this ADR
 
@@ -152,9 +164,9 @@ commanded path: it sends set-points and receives telemetry, like Ingenuity's Sna
 |---|---|---|
 | E3-1 | Quartus II 13.0sp1 fitter reports (LEs, registers, M4K, Fmax at C8) for each block, once the RTL exists after Phase A | the budget table |
 | E3-2 | Pin count from the EP2C5 board's schematic and headers, against ADR-04's pin list | I/O |
-| E3-3 | The ADR-05 F´ port spike on each candidate MCU | the microcontroller |
-| E3-4 | The benchmark from the archived paper plan ([`archive/RESEARCH_PAPER_PLAN.md`](../../archive/RESEARCH_PAPER_PLAN.md)): what changes in sample-time jitter, end-to-end latency and MCU load when triple-redundant sensor reading and voting move from MCU software to FPGA fabric? Its fairness rules carry over unchanged: same MCU, same build, same rate; the baseline reads the IMUs over SPI with DMA and votes in C; the only difference is where the sensors are read and voted. Metrics: sample-time jitter (GPIO at the sample instant, N = 100,000 cycles), end-to-end latency (histogram and observed maximum, which is not a proven WCET), MCU load (idle-task counter), fault-detection latency (injected corruption to flag). | whether sampling and voting belong in the FPGA |
-| E3-5 | A measured CRC_ERROR pass time on the EP2C5 at the chosen check clock | how long F7 goes undetected |
+| E3-3 | The ADR-05 F´ port spike on each candidate MCU | the microcontroller, and P1 against P4 |
+| E3-4 | The benchmark from the archived paper plan ([`archive/RESEARCH_PAPER_PLAN.md`](../../archive/RESEARCH_PAPER_PLAN.md)): what changes in sample-time jitter, end-to-end latency and MCU load when triple-redundant sensor reading and voting move from MCU software to FPGA fabric? Fairness rules unchanged: same MCU, same build, same rate; the baseline reads the IMUs over SPI with DMA and votes in C; the only difference is where the sensors are read and voted. Metrics: sample-time jitter (GPIO at the sample instant, N = 100,000 cycles), end-to-end latency (histogram and observed maximum, which is not a proven WCET), MCU load (idle-task counter), fault-detection latency (injected corruption to flag). Run on the FlatSat. | whether sampling and voting belong in the FPGA |
+| E3-5 | A measured CRC_ERROR pass time on the EP2C5 at the chosen check clock | whether R4 holds through an FPGA upset at apogee (ADR-02 §4) |
 
 ## Sources
 
@@ -192,4 +204,5 @@ commanded path: it sends set-points and receives telemetry, like Ingenuity's Sna
 
 | Date | Change |
 |---|---|
-| 2026-11-22 | Scoped |
+| 2026-11-22 | Scoped for the multirotor profile |
+| 2026-11-22 | Rescoped for the sounding rocket and FlatSat: two tiers settled, ESC outputs replaced by the fire chain, envelopes recomputed, the EP2C5 reassessed under ADR-02's rules |
