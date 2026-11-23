@@ -76,7 +76,8 @@ Device Handbook [1] unless marked.
 
 The I/O row is the package limit. The cheap EP2C5T144 boards bring out fewer pins on their headers, and
 some are taken by the oscillator, LEDs, buttons and the configuration device, so the real limit is the
-board's header count (evidence E3-2). ADR-04's pin list comes to about 57 signals for P1 and 64 for P2.
+board's header count (evidence E3-2). ADR-04's signal count comes to 51 to 66 for P1 and 61 to 79 for P2,
+depending mostly on whether each sensor gets its own SPI bus: P1 reaches the 75% ceiling at its high end.
 
 ### First-order block estimates
 
@@ -113,7 +114,8 @@ serial MVS:
 
 A second high-g accelerometer and a second barometer add about 150 LEs. P2 with a fully parallel MVS would
 pass the 75% ceiling at the high end of the estimate. M4K use stays at 6 blocks or fewer, multipliers at
-zero, PLLs at one. The budget does not bind; the configuration behaviour does.
+zero, PLLs at one. The logic budget does not bind; the I/O count can, and the configuration behaviour does.
+A classical CAN link (ADR-04) would add a CAN controller per link, not in the table above.
 
 ### Does the EP2C5 fly?
 
@@ -206,3 +208,4 @@ that must be impossible to enable in flight (ADR-06).
 |---|---|
 | 2026-11-22 | Scoped for the multirotor profile |
 | 2026-11-22 | Rescoped for the sounding rocket and FlatSat: two tiers settled, ESC outputs replaced by the fire chain, envelopes recomputed, the EP2C5 reassessed under ADR-02's rules |
+| 2026-11-23 | I/O count taken from ADR-04's rescoped signal count (51 to 66 for P1) |
