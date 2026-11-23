@@ -67,8 +67,8 @@ fine-grained boost integration at a 100 Hz frame rate. The cost is frame length 
 | SpaceWire (the archived plan) | | | no shortlisted MCU has a SpaceWire peripheral | dropped |
 
 **Classical CAN at 100 Hz.** Take a 32-byte message each way (*assumption*). The downlink is one broadcast,
-up to 540 µs; two uplinks (P1) add up to 1,080 µs, three (P2) up to 1,620 µs. At 100 Hz that is at most
-1.6 ms of bus time in a 10 ms frame, so bandwidth does not rule CAN out. At 500 Hz it does: P1 would leave
+up to 540 µs; two uplinks (P1) add up to 1,080 µs, three (P2) up to 1,620 µs. With the downlink, that is at
+most 1.6 ms (P1) or 2.2 ms (P2) of bus time; in a 10 ms frame at 100 Hz, bandwidth does not rule CAN out. At 500 Hz it does: P1 would leave
 at most 2,000 − 1,620 = 380 µs of computation per frame and P2 nothing (the earlier multirotor argument).
 
 What still counts against CAN on a rocket is fault containment. Both channels and the FPGA share one bus,
